@@ -39,6 +39,7 @@ class StandardMaterialValuation:
 
     @staticmethod
     def material_count(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         # TODO(Adriano) is the king and passed king really zero?
         # TODO(Adriano) are these values ok? Should we have multiple versions?
         # TODO(Adriano) we do not take into account the material quality
@@ -66,23 +67,29 @@ class StandardMaterialValuation:
 
     @staticmethod
     def mobility_count(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_pieces = torch.sum(board <= 10)
         opp_pieces = torch.sum(board > 10)
         return torch.tensor([my_pieces - opp_pieces], dtype=torch.float32)
 
     @staticmethod
     def pawn_majority(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         # Get each of our queenside and kingside
-        my_queenside = torch.sum((board == PAWN) | (board == PASSANT_PAWN))[:, :3]
-        my_kingside = torch.sum((board == PAWN) | (board == PASSANT_PAWN))[:, 5:]
+        my_queenside = torch.sum(((board == PAWN) | (board == PASSANT_PAWN))[:, :3])
+        my_kingside = torch.sum(((board == PAWN) | (board == PASSANT_PAWN))[:, 5:])
         opp_queenside = torch.sum(
-            (board == PAWN + OPPONENT_OFFSET)
-            | (board == PASSANT_PAWN + OPPONENT_OFFSET)
-        )[:, :3]
+            (
+                (board == PAWN + OPPONENT_OFFSET)
+                | (board == PASSANT_PAWN + OPPONENT_OFFSET)
+            )[:, :3]
+        )
         opp_kingside = torch.sum(
-            (board == PAWN + OPPONENT_OFFSET)
-            | (board == PASSANT_PAWN + OPPONENT_OFFSET)
-        )[:, 5:]
+            (
+                (board == PAWN + OPPONENT_OFFSET)
+                | (board == PASSANT_PAWN + OPPONENT_OFFSET)
+            )[:, 5:]
+        )
 
         my_majority = (my_queenside > opp_queenside).float() + (
             my_kingside > opp_kingside
@@ -176,6 +183,7 @@ class PawnStructure:
 
     @staticmethod
     def __file_pawn_counts(board: torch.Tensor, offset: int) -> torch.Tensor:
+        assert board.shape == (8, 8)
         out = torch.sum(
             (board == PAWN + offset) | (board == PASSANT_PAWN + offset), dim=0
         )
@@ -185,13 +193,16 @@ class PawnStructure:
     def __doubled_pawns_individual(
         board: torch.Tensor, offset: int = 0
     ) -> torch.Tensor:
+        assert board.shape == (8, 8)
         file_my_pawns = PawnStructure.__file_pawn_counts(board, offset)
         doubled_pawns_total = torch.clamp(file_my_pawns - 1, min=0).sum().item()
         assert doubled_pawns_total <= 7
         assert doubled_pawns_total >= 0
+        return doubled_pawns_total
 
     @staticmethod
     def __doubled_pawns(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_doubled_pawns = PawnStructure.__doubled_pawns_individual(board)
         opp_doubled_pawns = PawnStructure.__doubled_pawns_individual(
             board, OPPONENT_OFFSET
@@ -204,18 +215,20 @@ class PawnStructure:
     def __isolated_pawns_individual(
         board: torch.Tensor, offset: int = 0
     ) -> torch.Tensor:
+        assert board.shape == (8, 8)
         file_my_pawns = PawnStructure.__file_pawn_counts(board, offset)
         pawns_on_file = file_my_pawns > 0
         pawn_is_isolated = torch.zeros(8, dtype=torch.bool)
         for i in range(8):
             has_a_neighbor = False
-            has_neighbors = has_neighbors or (i != 0 and pawns_on_file[i - 1])
-            has_neighbors = has_neighbors or (i != 7 and pawns_on_file[i + 1])
-            pawn_is_isolated[i] = not has_neighbors
+            has_a_neighbor = has_a_neighbor or (i != 0 and pawns_on_file[i - 1])
+            has_a_neighbor = has_a_neighbor or (i != 7 and pawns_on_file[i + 1])
+            pawn_is_isolated[i] = not has_a_neighbor
         return torch.sum(pawn_is_isolated).item()
 
     @staticmethod
     def __isolated_pawns(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_isolated_pawns = PawnStructure.__isolated_pawns_individual(board)
         opp_isolated_pawns = PawnStructure.__isolated_pawns_individual(
             board, OPPONENT_OFFSET
@@ -232,13 +245,16 @@ class PawnStructure:
         Value pawns based on whether they are doubled or isolated. We simply subtract
         the "position" for us and that for our opponent.
         """
+        assert board.shape == (8, 8)
         return torch.mean(
-            [
-                # Each of these is a measure of how much better we are than the opponent
-                # by taking the negative of how much worse we are
-                PawnStructure.__doubled_pawns(board),
-                PawnStructure.__isolated_pawns(board),
-            ]
+            torch.tensor(
+                [
+                    # Each of these is a measure of how much better we are than the opponent
+                    # by taking the negative of how much worse we are
+                    PawnStructure.__doubled_pawns(board),
+                    PawnStructure.__isolated_pawns(board),
+                ]
+            )
         )
 
     @staticmethod
@@ -246,13 +262,14 @@ class PawnStructure:
         """
         Return a COUNT of how many pawns we have that are passed. More is better.
         """
+        assert board.shape == (8, 8)
         assert offset in [0, OPPONENT_OFFSET]
         my_pawns = (board == PAWN + offset) | (board == PASSANT_PAWN + offset)
         opp_pawns = (board == PAWN + OPPONENT_OFFSET) | (
             board == PASSANT_PAWN + OPPONENT_OFFSET
         )
         # TODO(Adriano) need a test to make sure these sort of reversal iteration is OK
-        opp_latest_per_row = torch.ones(8, dtype=torch.int32) * 9
+        opp_latest_per_row = torch.ones(8, dtype=torch.int32) * 7 # nothing past this!
         start, end, d, cmp = 0, 8, 1, max
         if offset == OPPONENT_OFFSET:
             start, end, d, cmp = 7, -1, -1, min
@@ -273,6 +290,7 @@ class PawnStructure:
         Value pawns based on whether they are passed. A passed pawn is passed if
         there are no opponent pawns above it.
         """
+        assert board.shape == (8, 8)
         # NOTE: passed pawns are GOOD which is why we are taking the POSITIVE side
         out = torch.tensor(
             [
@@ -297,6 +315,7 @@ class Centrality:
 
     @staticmethod
     def __centrality_center(board: torch.Tensor, left: int, right: int) -> torch.Tensor:
+        assert board.shape == (8, 8)
         center = board[left:right, left:right]
         my_control = torch.sum(center <= 10)
         opp_control = torch.sum(center > 10)
@@ -304,24 +323,29 @@ class Centrality:
 
     @staticmethod
     def centrality_center_2(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         return Centrality.__centrality_center(board, 3, 5)
 
     @staticmethod
     def centrality_center_4(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         return Centrality.__centrality_center(board, 2, 6)
 
     @staticmethod
     def __centrality_tempo(board: torch.Tensor, left: int, right: int) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_developed = torch.sum(board[left:right, :] <= 10)
         opp_developed = torch.sum(board[left:right, :] > 10)
         return torch.tensor([my_developed - opp_developed], dtype=torch.float32)
 
     @staticmethod
     def centrality_tempo_2(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         return Centrality.__centrality_tempo(board, 3, 5)
 
     @staticmethod
     def centrality_tempo_4(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         return Centrality.__centrality_tempo(board, 2, 6)
 
 
@@ -332,6 +356,7 @@ class GoodPieces:
 
     @staticmethod
     def bishop_pair(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_bishops = torch.sum((board == LIGHT_BISHOP) | (board == DARK_BISHOP))
         opp_bishops = torch.sum(
             (board == LIGHT_BISHOP + OPPONENT_OFFSET)
@@ -343,6 +368,7 @@ class GoodPieces:
 
     @staticmethod
     def rooks_on_open_files(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         # TODO(Adriano) does NOT take into account whether the rooks may have passed
         # the pawns.
         my_rooks = torch.sum((board == UNMOVED_ROOK) | (board == MOVED_ROOK), dim=0)
@@ -376,6 +402,7 @@ class King:
     # high for good, or very much low for good.
     @staticmethod
     def __king_shield(board: torch.Tensor, king_pos: int, is_opponent: bool):
+        assert board.shape == (8, 8)
         # Seems to look just for pawns of the right type
         rank, file = king_pos // 8, king_pos % 8
         shield_score = 0
@@ -389,6 +416,7 @@ class King:
 
     @staticmethod
     def king_safety(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_king_pos = torch.where((board == UNMOVED_KING) | (board == MOVED_KING))
         opp_king_pos = torch.where(
             (board == UNMOVED_KING + OPPONENT_OFFSET)
@@ -406,6 +434,7 @@ class King:
 
     @staticmethod
     def king_tropism(board: torch.Tensor) -> torch.Tensor:
+        assert board.shape == (8, 8)
         my_king_pos = torch.where((board == UNMOVED_KING) | (board == MOVED_KING))
         opp_king_pos = torch.where(
             (board == UNMOVED_KING + OPPONENT_OFFSET)
@@ -433,7 +462,7 @@ class King:
 ################################ EXPORTS ################################
 # The functions below here are generally what you'll want to use
 def evaluate_position(board: torch.Tensor) -> torch.Tensor:
-    return torch.cat(
+    out = torch.tensor(
         [
             StandardMaterialValuation.material_count(board),
             StandardMaterialValuation.mobility_count(board),
@@ -451,3 +480,5 @@ def evaluate_position(board: torch.Tensor) -> torch.Tensor:
             King.king_tropism(board),
         ]
     )
+    assert out.shape == (14,)
+    return out
