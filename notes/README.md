@@ -12,7 +12,7 @@ Here we are ideating how to try and improve our model. Generally the different i
     - Unsupervised
         - Predict basic stockfish evaluation?
     - Supervised
-        - 
+        - ...
 4. Training
     - We could regularization of some form. Not clear what to do here exactly.
         - Regularization loss functions
@@ -34,17 +34,17 @@ Here we are ideating how to try and improve our model. Generally the different i
 - 1.5M moves, 15 GB for existing dataset: we should be able to get to around 100M moves.
 
 ## What Needs To Be Done
-1. Download 90GB of data
-2. Investigate stockfish depth-to-speed tradeoff
-3. Estimate how long it would take to do pretraining on 100GB
+1. Download 90GB of data - DONE: seems this was NOT viable, because upon expansion it took up the entire filesystem because it was either to large or too small relative to block size in some way.
+2. Investigate stockfish depth-to-speed tradeoff: NOT investigated.
+3. Estimate how long it would take to do pretraining on 100GB: NOT investigated and punting due to the dataset size problem.
     - Understand how long would it take to run stockfish between 0-25 moves in the future
-4. Estimate per unit size of model how long it will take
+4. Estimate per unit size of model how long it will take: NOT done and this will not be viable just yet
     - Take into account model width (i.e. parallelism)
     - Take into account model depth (span)
-5. What heuristics stockfish uses (and other chess engines use) to inform what features we use. This can help us to get a notion of how to do search in the architecture.
+5. What heuristics stockfish uses (and other chess engines use) to inform what features we use. This can help us to get a notion of how to do search in the architecture. - We have understood a reasonable level of this
     - We also need to understand what range the value function is in
     - We also want to understand what other representations are used for chess bots.
-6. Run the initial model and get a baseline for quality, get a notion of what quality level we should aim for
+6. Run the initial model and get a baseline for quality, get a notion of what quality level we should aim for: DONE
 
 ## 5. How Chess Bots Work
 https://blogs.cornell.edu/info2040/2022/09/30/game-theory-how-stockfish-mastered-chess/ says that usually the range of values is between -4 and 4 for an absolute loss to an absolute win, with zero being neutral.
@@ -68,7 +68,7 @@ We will want to have a large taxonomy of metrics based on:
     - How many pieces are under attack
     - How many pieces that are under attack are defended or undefended
     - Are there any forks upcoming?
-    - 
+    - ...
 3. Material
     - How many pieces do I have?
         - Weighted by piece quality
@@ -89,3 +89,5 @@ Ideas for features to add
 - Booleans
     - ???
     - Bishop pair
+    - ...
+(just gonna finish this in code)
