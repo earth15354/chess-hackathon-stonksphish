@@ -1,0 +1,7 @@
+isc_project_id = "<isc-project-id>"
+experiment_name = "chess"
+gpu_type = "24GB VRAM GPU"
+nnodes = 8
+output_path = "~/outputs/chess"
+dataset_id = "<dataset-id>"
+command = "source ~/.chess/bin/activate && cd ~/chess-hackathon/ && torchrun --nnodes=8 --nproc-per-node=6 --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT --node_rank=$RANK train.py --save-dir $OUTPUT_PATH --lr 0.0002 --model-config /root/chess-hackathon/model_config.yaml"
