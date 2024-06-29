@@ -1,5 +1,6 @@
 # High Leval Approaches of Attack (Ideation Part 1)
 Here we are ideating how to try and improve our model. Generally the different ingredients we can try to get an edge over other teams are four-fold:
+
 1. We can try to add better data (more datasets, etc...)
     - We could collect new datasets
     - We could augment existing datasets (this might be easier in the later game with symmetries)
@@ -8,6 +9,10 @@ Here we are ideating how to try and improve our model. Generally the different i
     - We can use better positional or otherwise encodings to aide in the neural "reasoning"
     - The stockfish scores might be in bad units
 3. Architecture (unclear what architectural changes, but the heuristic IMO is to make it very large)
+    - Unsupervised
+        - Predict basic stockfish evaluation?
+    - Supervised
+        - 
 4. Training
     - We could regularization of some form. Not clear what to do here exactly.
         - Regularization loss functions
@@ -43,6 +48,8 @@ Here we are ideating how to try and improve our model. Generally the different i
 
 ## 5. How Chess Bots Work
 https://blogs.cornell.edu/info2040/2022/09/30/game-theory-how-stockfish-mastered-chess/ says that usually the range of values is between -4 and 4 for an absolute loss to an absolute win, with zero being neutral.
+
+NOTE: stockfish even at 15 (which we estimated could take a reasonable amount of time) reaches 2.5K ELO! Look: https://chess.stackexchange.com/questions/8123/stockfish-elo-vs-search-depth. Maybe we can get really fast 2K ELO at least.
 
 - Question: we will want to understand what the temperature ranges will be, because we can avoid making "mistakes". This is good if we make mistakes. Unclear if this is going to work.
 
