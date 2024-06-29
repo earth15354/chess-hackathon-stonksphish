@@ -21,4 +21,6 @@ Here we are ideating how to try and improve our model. Generally the different i
 
 ## What is likely most promising (to begin with)
 - Collecting more datasets to get one more OOM
-- 
+- Having good heursitic metrics
+- Large scale unsupervised pretraining
+- Making the model as large as possible and making sure all "reasoning steps" that we can come up with could be supported
