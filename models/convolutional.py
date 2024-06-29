@@ -49,7 +49,7 @@ class Model(nn.Module):
         # print(inputs.shape)
         inputs = self.input_emb(inputs) # (N, 8, 8, D) - this is nice
         # print(inputs.shape)
-        inputs = torch.permute(inputs, (0, 3, 1, 2))
+        inputs = torch.permute(inputs, (0, 3, 1, 2)) # (N, D, 8, 8)
         # print(inputs.shape)
         inputs = self.convnet(inputs)
         # print(inputs.shape)
