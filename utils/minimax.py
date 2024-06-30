@@ -16,6 +16,7 @@ class MiniMaxerV1:
     def __init__(self, model: nn.Module, depth: int, **kwargs) -> None:
         self.model = model
         self.depth = depth
+        self.n_states_explored = 0
 
     def generate_children(self, state: np.ndarray):
         assert state.shape == (8, 8)
@@ -33,6 +34,8 @@ class MiniMaxerV1:
         depth_remaining: int,
         maximize: bool,
     ) -> float:
+        self.n_states_explored += 1
+        
         assert isinstance(board_state, np.ndarray)
         assert board_state.shape == (8, 8)
         if depth_remaining == 0:

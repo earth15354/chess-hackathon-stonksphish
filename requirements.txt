@@ -11,6 +11,7 @@ einops
 jupyterlab
 notebook
 ipython
+tqdm
 click
 cycling_utils @ git+https://github.com/StrongResearch/cycling_utils.git
 

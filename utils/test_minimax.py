@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+import time
 import torch as t
 import torch.nn as nn
 from typing import List
@@ -7,9 +8,11 @@ from pathlib import Path
 import click
 import yaml
 import sys
+import tqdm
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
 from utils.minimax import MiniMaxerV1, MiniMaxedVanillaConvolutionalModel
+from models.convolutional import Model as VanillaModel
 from heuristics.utils import DEFAULT_STARTING_BOARD
 from utils.chess_gameplay import Agent, play_game, play_tournament
 
@@ -55,6 +58,8 @@ class TestMiniMaxerV1(unittest.TestCase):
 @click.option("--checkpoint", type=str, default="checkpoint.pt")
 @click.option("--depth", type=int, default=4)
 @click.option("--k", type=int, default=3)
+@click.option("--benchmark-minimaxer-v1", is_flag=True)
+@click.option("--benchmark-vanilla-convolutional", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
     play_minimaxed_vanilla_convolutional: bool,
@@ -62,6 +67,8 @@ def main(
     checkpoint: str,
     depth: int,
     k: int,
+    benchmark_minimaxer_v1: bool,
+    benchmark_vanilla_convolutional: bool,
 ):
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
@@ -101,6 +108,38 @@ def main(
         )
         # fmt: on
         click.echo(f"Game result:\n{game_result}")
+    if benchmark_minimaxer_v1:
+        click.echo("Benchmarking MiniMaxerV1")
+        model = MockModel()  # Very fast, should not really add much to the time
+        for depth in range(1, 10):
+            click.echo(f"Depth: {depth}...")
+            t_start = time.time()
+            minimaxer = MiniMaxerV1(model, depth)
+            minimaxer.batch_minimax([DEFAULT_STARTING_BOARD])
+            t_end = time.time()
+            click.echo(
+                f"Depth: {depth}, Time: {t_end - t_start}, explored {minimaxer.n_states_explored} states"
+            )
+    if benchmark_vanilla_convolutional:
+        with open(model_config, "r") as f:
+            kwargs = yaml.safe_load(f)
+        vanilla_model1 = VanillaModel(**kwargs)
+        state_dict = t.load(checkpoint)
+        vanilla_model1.load_state_dict(state_dict["model"])
+        vanilla_model1.eval()
+        input = DEFAULT_STARTING_BOARD.unsqueeze(0)
+        for model, message in zip(
+            [MockModel(), vanilla_model1], ["Baseline", "Vanilla Convolutional"]
+        ):
+            click.echo("=" * 32 + f" {message} " + "=" * 32)
+            for i in range(5):
+                time_start = time.time()
+                for _ in tqdm.trange(100):
+                    vanilla_model1(input)
+                time_end = time.time()
+                avg_time_taken = (time_end - time_start) / 100
+                click.echo(f"Trial {i+1}, Average time taken (/1000): {avg_time_taken}")
+            click.echo("=" * 128)
 
 
 if __name__ == "__main__":
