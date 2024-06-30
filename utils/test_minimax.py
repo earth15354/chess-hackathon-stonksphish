@@ -16,6 +16,7 @@ from utils.minimax import (
     MiniMaxedVanillaConvolutionalModel,
     MiniMaxedPieceCounterModel,
     MinimaxerBatched,
+    MinimaxerBatchedAvoidPieceLosingMoves,
 )
 from models.convolutional import Model as VanillaModel
 from heuristics.utils import DEFAULT_STARTING_BOARD
@@ -89,6 +90,7 @@ class TestMinimaxerBatched(unittest.TestCase):
 @click.option("--test-minimaxer-batched", is_flag=True)
 @click.option("--benchmark-batched-inference", is_flag=True)
 @click.option("--benchmark-batched-minimax", is_flag=True)
+@click.option("--benchmark-batched-no-piece-losing-moves", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
     play: bool,
@@ -103,6 +105,7 @@ def main(
     test_minimaxer_batched: bool,
     benchmark_batched_inference: bool,
     benchmark_batched_minimax: bool,
+    benchmark_batched_no_piece_losing_moves: bool,
 ):
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
@@ -207,27 +210,40 @@ def main(
             avg_time_taken = (time_end - time_start) / 1000
             click.echo(f"Trial {i+1}, Average time taken (/1000): {avg_time_taken}")
 
-    if benchmark_batched_minimax:
-        click.echo("Benchmarking batched minimax")
-        with open(model_config, "r") as f:
-            kwargs = yaml.safe_load(f)
-        vanilla_model1 = VanillaModel(**kwargs).to(device)
-        state_dict = t.load(checkpoint)
-        vanilla_model1.load_state_dict(state_dict["model"])
-        vanilla_model1.eval()
-        vanilla_model1 = vanilla_model1.to(device)
-        for depth in range(1, 3):
-            for i in range(3):
-                time_start = time.time()
-                roots = t.stack([DEFAULT_STARTING_BOARD for _ in range(32)], dim=0)
-                assert roots.shape == (32, 8, 8), roots.shape
-                minimaxer = MinimaxerBatched(vanilla_model1, roots, depth)
-                minimaxer.minimax()
-                time_end = time.time()
-                avg_time_taken = (time_end - time_start) / 32
-                click.echo(
-                    f"Trial {i+1}, depth {depth}: Average time taken (/32 batch size): {avg_time_taken}"
-                )
+    do_it = [
+        benchmark_batched_minimax,
+        benchmark_batched_no_piece_losing_moves,
+    ]
+    cls = [
+        MinimaxerBatched,
+        MinimaxerBatchedAvoidPieceLosingMoves,
+    ]
+    name = [
+        "MinimaxerBatched",
+        "MinimaxerBatchedAvoidPieceLosingMoves",
+    ]
+    for do, cls, name in zip(do_it, cls, name):
+        if do:
+            click.echo(f"Benchmarking {name}")
+            with open(model_config, "r") as f:
+                kwargs = yaml.safe_load(f)
+            vanilla_model1 = VanillaModel(**kwargs).to(device)
+            state_dict = t.load(checkpoint)
+            vanilla_model1.load_state_dict(state_dict["model"])
+            vanilla_model1.eval()
+            vanilla_model1 = vanilla_model1.to(device)
+            for depth in range(1, 5):
+                for i in range(2):
+                    time_start = time.time()
+                    roots = t.stack([DEFAULT_STARTING_BOARD for _ in range(10)], dim=0)
+                    assert roots.shape == (10, 8, 8), roots.shape
+                    minimaxer = cls(vanilla_model1, roots, depth)
+                    minimaxer.minimax()
+                    time_end = time.time()
+                    avg_time_taken = (time_end - time_start) / 10
+                    click.echo(
+                        f"Trial {i+1}, depth {depth}: Average time taken (/10 batch size): {avg_time_taken}"
+                    )
 
 
 if __name__ == "__main__":
