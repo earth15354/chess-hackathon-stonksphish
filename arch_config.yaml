@@ -1,0 +1,10 @@
+stdev: 1.0
+mean: 0.0
+num_valuations_per_piece_type: 5
+latent_num_planes: 400
+# NOTE that internal/external is not used right now :/
+num_internal_features: 50
+num_external_features: 100
+mlp_latent_dim: 256
+n_resid_layers: 10
+n_mlp_layers: 4

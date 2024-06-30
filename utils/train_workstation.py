@@ -1,3 +1,8 @@
+from __future__ import annotations
+from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).parent.parent.as_posix()))
+
 from cycling_utils import TimestampedTimer
 
 timer = TimestampedTimer("Imported TimestampedTimer")
@@ -7,10 +12,10 @@ import torch.nn as nn
 # import torch.distributed as dist
 # from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import random_split
-from pathlib import Path
 import argparse
 import os
-from model import Model
+# from model import Model
+from arch import LearnedValuation
 from dataset import HDFDataset
 from torch.utils.data import DataLoader
 import socket
@@ -61,7 +66,7 @@ def main(args, timer):
     args.save_chk_path.parent.mkdir(parents=True, exist_ok=True)
     timer.report("Validated checkpoint path")
 
-    data_path = "/data"
+    data_path = (Path(__file__).parent.parent / "data").as_posix() # TODO(Adriano) please parameterize
     dataset = HDFDataset(data_path)
     timer.report("Loaded dataset to RAM")
 
@@ -77,7 +82,8 @@ def main(args, timer):
     timer.report("Prepared dataloaders")
 
     model_config = yaml.safe_load(open(args.model_config))
-    model = Model(**model_config)
+    # model = Model(**model_config)
+    model = LearnedValuation(**model_config)
     # model = model.to(args.device_id)
     model = model.to('cuda')
     # model = DDP(model, device_ids=[args.device_id])
