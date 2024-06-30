@@ -56,7 +56,8 @@ class MiniMaxerV1:
         self.depth = depth
         self.n_states_explored = 0
 
-    def generate_children(self, state: np.ndarray):
+    @staticmethod
+    def generate_children(state: np.ndarray):
         assert state.shape == (8, 8)
         # Outer: parents (states)
         # Inner: children (moves)
@@ -85,7 +86,7 @@ class MiniMaxerV1:
         return func(
             [
                 self.minimax(child, depth_remaining - 1, not maximize)
-                for child in self.generate_children(board_state)
+                for child in MiniMaxerV1.generate_children(board_state)
             ]
         )
 
@@ -151,37 +152,102 @@ class MiniMaxerV1TopK(MiniMaxerV1):
                 key=lambda x: -x,
             )
 
+
 class MinimaxerBatched:
     """
     A minimaxer implementation that aims to be maximally batched.
     """
-    def __init__(self, model: nn.Module, depth: int, roots: Int[t.Tensor, "batch 8 8"]) -> None:
+
+    INFINITY = 2**62
+
+    def __init__(
+        self, model: nn.Module, depth: int, roots: Int[t.Tensor, "batch 8 8"]
+    ) -> None:
         assert roots.shape[1:] == (8, 8)
         self.model = model
         self.depth = depth
-        self.to_parent: Dict[int, Optional[int]] = {}
-        self.roots = {i : r for i, r in enumerate(self.roots)}
-        self.to_depth: Dict[int, int] = {i : 0 for i in self.roots.keys()} # Even depth = maximize
-        self.leaves: Dict[int, np.ndarray] = {}
-        for i, _ in enumerate(roots):
-            self.to_parent[i] = None
+        self.roots = roots
+        self.parents = [None for _ in range(len(self.roots))]
+        self.depths = [0 for _ in range(len(self.roots))]
+        self.values = None
+        self.end_exc = len(self.parents)
+        self.leaves_boardstack = t.Tensor([])
 
     def trickle_down_phase(self) -> None:
-        first_idx = 0
-        final_idx = len(self.roots)
-        # for d in range(self.depth):
-        #     for parent_idx
-        #         children = generate_children(parent)
-        #         for child in children:
-        #             self.to_parent[]
-        #             new_queue.append(child)
-        #     queue = new_queue
-    def calculate_leaf_values_phase(self) -> None:
-        pass
+        queue = [r.numpy() for r in self.roots]
 
-    def trickle_up_phase(self) -> None:
-        queue = []
-        for
+        depth = 0
+        n_visited = len(self.roots)
+        while depth < self.depth:
+
+            assert len(self.parents) == self.end_exc
+            start_inc = self.end_exc - len(queue)
+            # Ensure it's a rising sequence
+            new_queue = []
+            new_end_exc = self.end_exc
+            for offset, state in enumerate(queue):
+                children = MiniMaxerV1.generate_children(state)
+                n_visited += len(children)
+                new_queue += children
+                self.depths += [
+                    depth + 1 for _ in range(len(children))
+                ]  # Add the to depths
+                new_end_exc += len(children)
+                self.parents.append(start_inc + offset)
+            queue = new_queue
+            self.end_exc = new_end_exc
+            self.depth += 1
+        assert len(queue) > 0
+        self.leaves = queue
+        self.leaves_boardstack = t.stack([t.from_numpy(l) for l in self.leaves])
+
+        assert len(self.parents) == self.end_exc
+        assert len(self.leaves) < len(self.parents)
+        assert len(self.parents) == n_visited
+        assert len(self.parents) == len(self.depths)
+        # Ensure this is a monotonic array taht only goes up by 1 ever
+        assert all(
+            self.parents[i] <= self.parents[i + 1] for i in range(len(self.parents) - 1)
+        )
+        assert all(
+            self.parents[i] + 1 >= self.parents[i + 1]
+            for i in range(len(self.parents) - 1)
+        )
+
+        self.values = [None for _ in range(len(self.parents))]
+
+    def tricke_up_phase(self) -> None:
+        for value, depth, parent in reversed(
+            zip(self.values, self.depths, self.parents)
+        ):
+            assert value is not None
+            if parent is None:
+                break
+
+            if self.values[parent] is None:
+                self.values[parent] = value
+            else:
+                func = max if depth % 2 == 0 else min
+                self.values[parent] = func(
+                    self.values[parent], value if depth % 2 == 0 else -value
+                )
+        assert all(v is not None and isinstance(v, float) for v in self.values)
+
+    def minimax(self) -> None:
+        # 1. Trickle down
+        self.trickle_down_phase()
+
+        # 2. Batch inference
+        leaves_valuestack = self.model(self.leaves_boardstack)
+        assert leaves_valuestack.shape == (len(self.leaves),)
+        self.values[-len(leaves_valuestack) :] = leaves_valuestack.tolist()
+
+        # 3. Trickle up
+        self.tricke_up_phase()
+
+        # 4. Extract values
+        return t.Tensor(self.values[: self.len(self.roots)])
+
 
 
 class MiniMaxedModule(nn.Module):

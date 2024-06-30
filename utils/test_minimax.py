@@ -15,6 +15,7 @@ from utils.minimax import (
     MiniMaxerV1,
     MiniMaxedVanillaConvolutionalModel,
     MiniMaxedPieceCounterModel,
+    MinimaxerBatched,
 )
 from models.convolutional import Model as VanillaModel
 from heuristics.utils import DEFAULT_STARTING_BOARD
@@ -55,6 +56,38 @@ class TestMiniMaxerV1(unittest.TestCase):
         self.assertEqual(results.shape, (batch_size,))
 
 
+class TestMinimaxerBatched(unittest.TestCase):
+    def test_trickle_down_phase(self):
+        # Mock the model (we don't need it for this test)
+        model = MockModel()
+
+        # Create a sample root state
+        roots = t.stack([DEFAULT_STARTING_BOARD for _ in range(2)], dim=0)
+        assert roots.shape == (2, 8, 8)
+
+        # Initialize MinimaxerBatched
+        depth = 3
+        minimaxer = MinimaxerBatched(model, depth, roots)
+
+        # Run the trickle_down_phase
+        minimaxer.trickle_down_phase()
+
+        # Assertions to check if the method worked correctly
+        self.assertEqual(minimaxer.depth, depth)
+        self.assertGreater(len(minimaxer.leaves), 0)
+        self.assertEqual(len(minimaxer.parents), minimaxer.end_exc)
+        self.assertLess(len(minimaxer.leaves), len(minimaxer.parents))
+
+        # Check if parents array is monotonically increasing
+        for i in range(len(minimaxer.parents) - 1):
+            self.assertLessEqual(minimaxer.parents[i], minimaxer.parents[i + 1])
+            self.assertGreaterEqual(minimaxer.parents[i] + 1, minimaxer.parents[i + 1])
+
+        # Check if leaves_tstack has the correct shape
+        expected_leaf_shape = (len(minimaxer.leaves), 8, 8)
+        self.assertEqual(minimaxer.leaves_tstack.shape, expected_leaf_shape)
+
+
 @click.command()
 @click.option("--test-minimaxer-v1", is_flag=True)
 @click.option("--play", is_flag=True)
@@ -67,6 +100,8 @@ class TestMiniMaxerV1(unittest.TestCase):
 @click.option("--k", type=int, default=3)
 @click.option("--benchmark-minimaxer-v1", is_flag=True)
 @click.option("--benchmark-vanilla-convolutional", is_flag=True)
+@click.option("--device", type=str, default="cpu")
+@click.option("--test-minimaxer-batched", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
     play: bool,
@@ -77,6 +112,8 @@ def main(
     k: int,
     benchmark_minimaxer_v1: bool,
     benchmark_vanilla_convolutional: bool,
+    device: str,
+    test_minimaxer_batched: bool,
 ):
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
@@ -92,14 +129,14 @@ def main(
         kwargs["k"] = k
         kwargs["minimaxer_top_k"] = True  # Do this for perf. opt.
         vanilla_model1 = (
-            MiniMaxedVanillaConvolutionalModel(**kwargs)
+            MiniMaxedVanillaConvolutionalModel(**kwargs).to(device)
             if play_model == "vanilla-convolutional"
-            else MiniMaxedPieceCounterModel(**kwargs)
+            else MiniMaxedPieceCounterModel(**kwargs).to(device)
         )
         vanilla_model2 = (
-            MiniMaxedVanillaConvolutionalModel(**kwargs)
+            MiniMaxedVanillaConvolutionalModel(**kwargs).to(device)
             if play_model == "vanilla-convolutional"
-            else MiniMaxedPieceCounterModel(**kwargs)
+            else MiniMaxedPieceCounterModel(**kwargs).to(device)
         )
         if play_model == "vanilla-convolutional":
             state_dict = t.load(checkpoint)
@@ -132,7 +169,7 @@ def main(
             click.echo(f"Depth: {depth}...")
             t_start = time.time()
             minimaxer = MiniMaxerV1(model, depth)
-            minimaxer.batch_minimax([DEFAULT_STARTING_BOARD])
+            minimaxer.batch_minimax([DEFAULT_STARTING_BOARD.to("cpu")])
             t_end = time.time()
             click.echo(
                 f"Depth: {depth}, Time: {t_end - t_start}, explored {minimaxer.n_states_explored} states"
@@ -140,11 +177,11 @@ def main(
     if benchmark_vanilla_convolutional:
         with open(model_config, "r") as f:
             kwargs = yaml.safe_load(f)
-        vanilla_model1 = VanillaModel(**kwargs)
+        vanilla_model1 = VanillaModel(**kwargs).to(device)
         state_dict = t.load(checkpoint)
         vanilla_model1.load_state_dict(state_dict["model"])
         vanilla_model1.eval()
-        input = DEFAULT_STARTING_BOARD.unsqueeze(0)
+        input = DEFAULT_STARTING_BOARD.unsqueeze(0).to(device)
         for model, message in zip(
             [MockModel(), vanilla_model1], ["Baseline", "Vanilla Convolutional"]
         ):
@@ -157,6 +194,10 @@ def main(
                 avg_time_taken = (time_end - time_start) / 100
                 click.echo(f"Trial {i+1}, Average time taken (/1000): {avg_time_taken}")
             click.echo("=" * 128)
+
+    if test_minimaxer_batched:
+        click.echo("Running MinimaxerBatched tests")
+        unittest.main(argv=["", "TestMinimaxerBatched"], exit=False)
 
 
 if __name__ == "__main__":
