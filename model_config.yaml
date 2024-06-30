@@ -1,6 +1,3 @@
-ntoken: 21
-embed_dim: 48
-nhead: 6
-nhid: 48
-nlayers: 10
-batch_first: True
+ntoken: 21 
+embed_dim: 64 
+nlayers: 9
