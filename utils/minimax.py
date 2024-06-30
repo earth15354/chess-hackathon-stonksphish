@@ -6,6 +6,44 @@ import utils.chess_primitives as primitives
 from typing import Optional, Dict, List
 from models.convolutional import Model
 
+from heuristics.utils import (
+    PAWN,
+    PASSANT_PAWN,
+    UNMOVED_ROOK,
+    MOVED_ROOK,
+    KNIGHT,
+    LIGHT_BISHOP,
+    DARK_BISHOP,
+    QUEEN,
+    UNMOVED_KING,
+    MOVED_KING,
+    OPPONENT_OFFSET,
+)
+
+
+class PieceCounterModel(nn.Module):
+    my_pieces = [
+        PAWN,
+        PASSANT_PAWN,
+        UNMOVED_ROOK,
+        MOVED_ROOK,
+        KNIGHT,
+        LIGHT_BISHOP,
+        DARK_BISHOP,
+        QUEEN,
+        UNMOVED_KING,
+        MOVED_KING,
+    ]
+    enemy_pieces = [p + OPPONENT_OFFSET for p in my_pieces]
+
+    def forward(self, x: Int[t.Tensor, "batch 8 8"]) -> Float[t.Tensor, "batch"]:
+        mask = t.zeros_like(x)
+        for p in self.my_pieces:
+            mask += (x == p).int()
+        for p in self.enemy_pieces:
+            mask -= (x == p).int()
+        return mask.sum(dim=-1).sum(dim=-1).float()
+
 
 class MiniMaxerV1:
     """
@@ -35,7 +73,7 @@ class MiniMaxerV1:
         maximize: bool,
     ) -> float:
         self.n_states_explored += 1
-        
+
         assert isinstance(board_state, np.ndarray)
         assert board_state.shape == (8, 8)
         if depth_remaining == 0:
@@ -95,7 +133,7 @@ class MiniMaxerV1TopK(MiniMaxerV1):
         children_values = children_values[: self.k]
         children = [children[i] for i, _ in children_values]
         assert all(isinstance(child, np.ndarray) for child in children)
-        assert len(children) == self.k
+        assert len(children) <= self.k
 
         if maximize:
             return func(
@@ -113,41 +151,37 @@ class MiniMaxerV1TopK(MiniMaxerV1):
                 key=lambda x: -x,
             )
 
+class MinimaxerBatched:
+    """
+    A minimaxer implementation that aims to be maximally batched.
+    """
+    def __init__(self, model: nn.Module, depth: int, roots: Int[t.Tensor, "batch 8 8"]) -> None:
+        assert roots.shape[1:] == (8, 8)
+        self.model = model
+        self.depth = depth
+        self.to_parent: Dict[int, Optional[int]] = {}
+        self.roots = {i : r for i, r in enumerate(self.roots)}
+        self.to_depth: Dict[int, int] = {i : 0 for i in self.roots.keys()} # Even depth = maximize
+        self.leaves: Dict[int, np.ndarray] = {}
+        for i, _ in enumerate(roots):
+            self.to_parent[i] = None
 
-# TODO(Adriano) return to this, we might be able to get deeper search if we are able to
-# optimize performance, which, in theory, we could do by maybe spreading load better or using
-# more torch operations, etc...
-#
-# Batching is best, so we generate the tree, and then we calculate the values, and then we
-# do the minimax calculation
-# class Minimaxer:
-#     def __init__(self, model: nn.Module, depth: int, roots: Int[t.Tensor, "batch 8 8"]) -> None:
-#         assert roots.shape[1:] == (8, 8)
-#         self.model = model
-#         self.depth = depth
-#         self.to_parent: Dict[int, Optional[int]] = {}
-#         self.roots = {i : r for i, r in enumerate(self.roots)}
-#         self.to_depth: Dict[int, int] = {i : 0 for i in self.roots.keys()} # Even depth = maximize
-#         self.leaves: Dict[int, np.ndarray] = {}
-#         for i, _ in enumerate(roots):
-#             self.to_parent[i] = None
+    def trickle_down_phase(self) -> None:
+        first_idx = 0
+        final_idx = len(self.roots)
+        # for d in range(self.depth):
+        #     for parent_idx
+        #         children = generate_children(parent)
+        #         for child in children:
+        #             self.to_parent[]
+        #             new_queue.append(child)
+        #     queue = new_queue
+    def calculate_leaf_values_phase(self) -> None:
+        pass
 
-#     def trickle_down_phase(self) -> None:
-#         first_idx = 0
-#         final_idx = len(self.roots)
-#         # for d in range(self.depth):
-#         #     for parent_idx
-#         #         children = generate_children(parent)
-#         #         for child in children:
-#         #             self.to_parent[]
-#         #             new_queue.append(child)
-#         #     queue = new_queue
-#     def calculate_leaf_values_phase(self) -> None:
-#         pass
-
-#     def trickle_up_phase(self) -> None:
-#         queue = []
-#         for
+    def trickle_up_phase(self) -> None:
+        queue = []
+        for
 
 
 class MiniMaxedModule(nn.Module):
@@ -181,4 +215,20 @@ class MiniMaxedVanillaConvolutionalModel(MiniMaxedModule):
         minimaxer_top_k = kwargs.pop("minimaxer_top_k")
         super().__init__(
             model=Model(**kwargs), depth=depth, k=k, minimaxer_top_k=minimaxer_top_k
+        )
+
+
+class MiniMaxedPieceCounterModel(MiniMaxedModule):
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ) -> None:
+        if "depth" not in kwargs:
+            raise ValueError("depth must be passed as a keyword argument")
+        depth = kwargs.pop("depth")
+        k = kwargs.pop("k")
+        minimaxer_top_k = kwargs.pop("minimaxer_top_k")
+        super().__init__(
+            model=PieceCounterModel(), depth=depth, k=k, minimaxer_top_k=minimaxer_top_k
         )

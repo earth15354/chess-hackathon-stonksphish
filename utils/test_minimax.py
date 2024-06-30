@@ -11,7 +11,11 @@ import sys
 import tqdm
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
-from utils.minimax import MiniMaxerV1, MiniMaxedVanillaConvolutionalModel
+from utils.minimax import (
+    MiniMaxerV1,
+    MiniMaxedVanillaConvolutionalModel,
+    MiniMaxedPieceCounterModel,
+)
 from models.convolutional import Model as VanillaModel
 from heuristics.utils import DEFAULT_STARTING_BOARD
 from utils.chess_gameplay import Agent, play_game, play_tournament
@@ -53,7 +57,10 @@ class TestMiniMaxerV1(unittest.TestCase):
 
 @click.command()
 @click.option("--test-minimaxer-v1", is_flag=True)
-@click.option("--play-minimaxed-vanilla-convolutional", is_flag=True)
+@click.option("--play", is_flag=True)
+@click.option(
+    "--play-model", type=click.Choice(["vanilla-convolutional", "piece-count"])
+)
 @click.option("--model-config", type=str, default="model_config.yaml")
 @click.option("--checkpoint", type=str, default="checkpoint.pt")
 @click.option("--depth", type=int, default=4)
@@ -62,7 +69,8 @@ class TestMiniMaxerV1(unittest.TestCase):
 @click.option("--benchmark-vanilla-convolutional", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
-    play_minimaxed_vanilla_convolutional: bool,
+    play: bool,
+    play_model: str,
     model_config: str,
     checkpoint: str,
     depth: int,
@@ -73,7 +81,7 @@ def main(
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
         unittest.main(argv=["", "TestMiniMaxerV1"], exit=False)
-    if play_minimaxed_vanilla_convolutional:
+    if play:
         click.echo("Playing MiniMaxed Vanilla Convolutional")
         # Load both models to be the same weights
         with open(model_config, "r") as f:
@@ -83,17 +91,26 @@ def main(
         kwargs["depth"] = depth
         kwargs["k"] = k
         kwargs["minimaxer_top_k"] = True  # Do this for perf. opt.
-        vanilla_model1 = MiniMaxedVanillaConvolutionalModel(**kwargs)
-        vanilla_model2 = MiniMaxedVanillaConvolutionalModel(**kwargs)
-        state_dict = t.load(checkpoint)
-        # names = sorted(state_dict["model"].keys())  # XXX
-        # print("\n".join(names))  # XXX
-        # print(len(names))
-        # print("\n".join(sorted(vanilla_model1.state_dict().keys())))  # XXX
-        # print(len(vanilla_model1.state_dict().keys()))  # XXX
-        vanilla_model1.model.load_state_dict(state_dict["model"])
+        vanilla_model1 = (
+            MiniMaxedVanillaConvolutionalModel(**kwargs)
+            if play_model == "vanilla-convolutional"
+            else MiniMaxedPieceCounterModel(**kwargs)
+        )
+        vanilla_model2 = (
+            MiniMaxedVanillaConvolutionalModel(**kwargs)
+            if play_model == "vanilla-convolutional"
+            else MiniMaxedPieceCounterModel(**kwargs)
+        )
+        if play_model == "vanilla-convolutional":
+            state_dict = t.load(checkpoint)
+            # names = sorted(state_dict["model"].keys())  # XXX
+            # print("\n".join(names))  # XXX
+            # print(len(names))
+            # print("\n".join(sorted(vanilla_model1.state_dict().keys())))  # XXX
+            # print(len(vanilla_model1.state_dict().keys()))  # XXX
+            vanilla_model1.model.load_state_dict(state_dict["model"])
+            vanilla_model2.model.load_state_dict(state_dict["model"])
         vanilla_model1.eval()
-        vanilla_model2.model.load_state_dict(state_dict["model"])
         vanilla_model2.eval()
 
         agents = [Agent(vanilla_model1), Agent(vanilla_model2)]
