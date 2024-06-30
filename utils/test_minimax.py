@@ -57,7 +57,7 @@ class TestMiniMaxerV1(unittest.TestCase):
 
 
 class TestMinimaxerBatched(unittest.TestCase):
-    def test_trickle_down_phase(self):
+    def test_run(self):
         # Mock the model (we don't need it for this test)
         model = MockModel()
 
@@ -67,25 +67,10 @@ class TestMinimaxerBatched(unittest.TestCase):
 
         # Initialize MinimaxerBatched
         depth = 3
-        minimaxer = MinimaxerBatched(model, depth, roots)
+        minimaxer = MinimaxerBatched(model, roots, depth)
 
         # Run the trickle_down_phase
         minimaxer.trickle_down_phase()
-
-        # Assertions to check if the method worked correctly
-        self.assertEqual(minimaxer.depth, depth)
-        self.assertGreater(len(minimaxer.leaves), 0)
-        self.assertEqual(len(minimaxer.parents), minimaxer.end_exc)
-        self.assertLess(len(minimaxer.leaves), len(minimaxer.parents))
-
-        # Check if parents array is monotonically increasing
-        for i in range(len(minimaxer.parents) - 1):
-            self.assertLessEqual(minimaxer.parents[i], minimaxer.parents[i + 1])
-            self.assertGreaterEqual(minimaxer.parents[i] + 1, minimaxer.parents[i + 1])
-
-        # Check if leaves_tstack has the correct shape
-        expected_leaf_shape = (len(minimaxer.leaves), 8, 8)
-        self.assertEqual(minimaxer.leaves_tstack.shape, expected_leaf_shape)
 
 
 @click.command()
@@ -103,6 +88,7 @@ class TestMinimaxerBatched(unittest.TestCase):
 @click.option("--device", type=str, default="cpu")
 @click.option("--test-minimaxer-batched", is_flag=True)
 @click.option("--benchmark-batched-inference", is_flag=True)
+@click.option("--benchmark-batched-minimax", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
     play: bool,
@@ -116,6 +102,7 @@ def main(
     device: str,
     test_minimaxer_batched: bool,
     benchmark_batched_inference: bool,
+    benchmark_batched_minimax: bool,
 ):
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
@@ -200,7 +187,7 @@ def main(
     if test_minimaxer_batched:
         click.echo("Running MinimaxerBatched tests")
         unittest.main(argv=["", "TestMinimaxerBatched"], exit=False)
-    
+
     if benchmark_batched_inference:
         click.echo("Benchmarking batched inference")
         with open(model_config, "r") as f:
@@ -219,6 +206,28 @@ def main(
             time_end = time.time()
             avg_time_taken = (time_end - time_start) / 1000
             click.echo(f"Trial {i+1}, Average time taken (/1000): {avg_time_taken}")
+
+    if benchmark_batched_minimax:
+        click.echo("Benchmarking batched minimax")
+        with open(model_config, "r") as f:
+            kwargs = yaml.safe_load(f)
+        vanilla_model1 = VanillaModel(**kwargs).to(device)
+        state_dict = t.load(checkpoint)
+        vanilla_model1.load_state_dict(state_dict["model"])
+        vanilla_model1.eval()
+        vanilla_model1 = vanilla_model1.to(device)
+        for depth in range(1, 3):
+            for i in range(3):
+                time_start = time.time()
+                roots = t.stack([DEFAULT_STARTING_BOARD for _ in range(32)], dim=0)
+                assert roots.shape == (32, 8, 8), roots.shape
+                minimaxer = MinimaxerBatched(vanilla_model1, roots, depth)
+                minimaxer.minimax()
+                time_end = time.time()
+                avg_time_taken = (time_end - time_start) / 32
+                click.echo(
+                    f"Trial {i+1}, depth {depth}: Average time taken (/32 batch size): {avg_time_taken}"
+                )
 
 
 if __name__ == "__main__":

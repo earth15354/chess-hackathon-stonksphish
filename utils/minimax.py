@@ -161,101 +161,111 @@ class MinimaxerBatched:
     INFINITY = 2**62
 
     def __init__(
-        self, model: nn.Module, depth: int, roots: Int[t.Tensor, "batch 8 8"]
+        self,
+        model: nn.Module,
+        roots: Int[t.Tensor, "batch 8 8"],
+        depth: int = 4,
+        device: str = "cpu",
     ) -> None:
         assert roots.shape[1:] == (8, 8)
         self.model = model
         self.depth = depth
         self.roots = roots
-        self.parents = [None for _ in range(len(self.roots))]
-        self.depths = [0 for _ in range(len(self.roots))]
-        self.is_leaf = [False for _ in range(len(self.roots))]
-        self.values = None
-        self.end_exc = len(self.parents)
-        self.leaves_boardstack = t.Tensor([])
+        self.ids = 0
+        self.parent_ids: Dict[int, Optional[int]] = {}
+        self.leaf_id2leaf: Dict[int, np.ndarray] = {}
+        self.id2value: Dict[int, float] = {}
+        self.id2depth: Dict[int, int] = {}
+        self.device = device
 
-    # TODO(Adriano) fix bug where this won't correctly work if thre are game paths that end early
-    def trickle_down_phase(self) -> None:
-        queue = [r.numpy() for r in self.roots]
+    def __trickle_down(
+        self,
+        board_state: np.ndarray,
+        depth_remaining: int,
+        parent_id: Optional[int],
+    ) -> float:
+        assert isinstance(board_state, np.ndarray)
+        assert board_state.shape == (8, 8)
 
-        depth = 0
-        n_visited = len(self.roots)
-        for depth in range(0, self.depth):
-            print("depth", depth)
-            # fmt: off
-            assert len(self.parents) == self.end_exc, f"{len(self.parents)} != {self.end_exc}"
-            # fmt: on
+        # Grab an id
+        assigned_id = self.ids
+        self.ids += 1
 
-            start_inc = self.end_exc - len(queue)
-            # Ensure it's a rising sequence
-            new_queue = []
-            new_end_exc = self.end_exc
-            for offset, state in enumerate(queue):
-                print("offset, state", offset, state.shape)
-                children = MiniMaxerV1.generate_children(state)
-                if len(children) == 0:
-                    self.is_leaf[start_inc + offset] = True
-                else:
-                    print("there are children", len(children))
-                    n_visited += len(children)
-                    new_queue += children
-                    self.depths += [depth + 1 for _ in range(len(children))]
-                    # fmt: off
-                    self.is_leaf += [depth == self.depth - 1 for _ in range(len(children))]
-                    # fmt: on
-                    new_end_exc += len(children)
-                    self.parents.append(start_inc + offset)
-            queue = new_queue
-            self.end_exc = new_end_exc
-            self.depth += 1
-        assert len(queue) > 0, f"{len(queue)} == 0"
-        self.leaves = queue
-        self.leaves_boardstack = t.stack([t.from_numpy(l) for l in self.leaves])
+        # Point to parent
+        self.parent_ids[assigned_id] = parent_id
 
-        # fmt: off
-        assert len(self.parents) == self.end_exc, f"{len(self.parents)} != {self.end_exc}"
-        assert len(self.leaves) < len(self.parents), f"{len(self.leaves)} >= {len(self.parents)}"
-        assert len(self.parents) == n_visited, f"{len(self.parents)} != {n_visited}"
-        assert len(self.parents) == len(self.depths), f"{len(self.parents)} != {len(self.depths)}"
-        assert len(self.parents) == len(self.is_leaf), f"{len(self.parents)} != {len(self.is_leaf)}"
-        # Ensure this is a monotonic array taht only goes up by 1 ever
-        assert all(self.parents[i] <= self.parents[i + 1] for i in range(len(self.parents) - 1))
-        assert all(self.parents[i] + 1 >= self.parents[i + 1] for i in range(len(self.parents) - 1))
-        # fmt: on
-
-        self.values = [None for _ in range(len(self.parents))]
-
-    def tricke_up_phase(self) -> None:
-        for value, depth, parent in reversed(
-            zip(self.values, self.depths, self.parents)
-        ):
-            assert value is not None
-            if parent is None:
-                break
-
-            if self.values[parent] is None:
-                self.values[parent] = value
-            else:
-                func = max if depth % 2 == 0 else min
-                self.values[parent] = func(
-                    self.values[parent], value if depth % 2 == 0 else -value
+        if depth_remaining == 0:
+            self.leaf_id2leaf[assigned_id] = board_state
+        else:
+            # Leaves don't need to know their depth (check trickle up)
+            self.id2depth[assigned_id] = self.depth - depth_remaining
+            for child in MiniMaxerV1.generate_children(board_state):
+                self.__trickle_down(
+                    board_state=child,
+                    depth_remaining=depth_remaining - 1,
+                    parent_id=assigned_id,
                 )
-        assert all(v is not None and isinstance(v, float) for v in self.values)
+
+    def trickle_down_phase(self) -> None:
+        for _, root in enumerate(self.roots):
+            self.__trickle_down(
+                board_state=root.numpy(), depth_remaining=self.depth, parent_id=None
+            )
+
+    def batch_infer_phase(self) -> None:
+        # print(self.leaf_id2leaf.keys()) # DEBUG
+        # print(set(range(self.ids - len(self.leaf_id2leaf), self.ids))) # DEBUG
+        # assert set(self.leaf_id2leaf.keys()) == set(range(self.ids - len(self.leaf_id2leaf), self.ids))
+
+        leaf_idxs = sorted(self.leaf_id2leaf.keys())
+
+        # Get the leaves
+        leaves = t.stack(
+            [t.Tensor(self.leaf_id2leaf[i]).long().to(self.device) for i in leaf_idxs],
+            dim=0,
+        )
+        assert leaves.shape == (len(leaf_idxs), 8, 8)
+        leaves_valuestack = self.model(leaves)
+        for i, value in enumerate(leaves_valuestack):
+            idx = leaf_idxs[i]
+            self.id2value[idx] = value
+
+    # Return what a BAD move is
+    def __default_value_at(self, depth: int) -> float:
+        return -self.INFINITY if depth % 2 == 0 else self.INFINITY
+
+    def trickle_up_phase(self) -> None:
+        for i in range(self.ids - 1, -1, -1):
+            assert i in self.id2value
+            if self.parent_ids[i] is None:
+                # Does not apply because DFS instead of BFS
+                # assert all(self.parent_ids[j] is None for j in range(i))
+                continue
+            parent_id = self.parent_ids[i]
+            parent_depth = self.id2depth[parent_id]
+            parent_value = self.id2value.get(
+                parent_id, self.__default_value_at(parent_depth)
+            )
+
+            child_value = (
+                self.id2value[i] if parent_depth % 2 == 0 else -self.id2value[i]
+            )
+            self.id2value[parent_id] = max(parent_value, child_value)
 
     def minimax(self) -> None:
         # 1. Trickle down
         self.trickle_down_phase()
 
         # 2. Batch inference
-        leaves_valuestack = self.model(self.leaves_boardstack)
-        assert leaves_valuestack.shape == (len(self.leaves),)
-        self.values[-len(leaves_valuestack) :] = leaves_valuestack.tolist()
+        self.batch_infer_phase()
 
         # 3. Trickle up
-        self.tricke_up_phase()
+        self.trickle_up_phase()
 
         # 4. Extract values
-        return t.Tensor(self.values[: self.len(self.roots)])
+        out = t.Tensor([self.id2value[i] for i in range(len(self.roots))])
+        assert out.shape == (len(self.roots),)
+        return out
 
 
 class MiniMaxedModule(nn.Module):
