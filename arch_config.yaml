@@ -8,3 +8,4 @@ num_external_features: 100
 mlp_latent_dim: 256
 n_resid_layers: 10
 n_mlp_layers: 4
+device: cuda
