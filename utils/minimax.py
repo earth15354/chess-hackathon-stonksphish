@@ -169,50 +169,59 @@ class MinimaxerBatched:
         self.roots = roots
         self.parents = [None for _ in range(len(self.roots))]
         self.depths = [0 for _ in range(len(self.roots))]
+        self.is_leaf = [False for _ in range(len(self.roots))]
         self.values = None
         self.end_exc = len(self.parents)
         self.leaves_boardstack = t.Tensor([])
 
+    # TODO(Adriano) fix bug where this won't correctly work if thre are game paths that end early
     def trickle_down_phase(self) -> None:
         queue = [r.numpy() for r in self.roots]
 
         depth = 0
         n_visited = len(self.roots)
-        while depth < self.depth:
+        for depth in range(0, self.depth):
+            print("depth", depth)
+            # fmt: off
+            assert len(self.parents) == self.end_exc, f"{len(self.parents)} != {self.end_exc}"
+            # fmt: on
 
-            assert len(self.parents) == self.end_exc
             start_inc = self.end_exc - len(queue)
             # Ensure it's a rising sequence
             new_queue = []
             new_end_exc = self.end_exc
             for offset, state in enumerate(queue):
+                print("offset, state", offset, state.shape)
                 children = MiniMaxerV1.generate_children(state)
-                n_visited += len(children)
-                new_queue += children
-                self.depths += [
-                    depth + 1 for _ in range(len(children))
-                ]  # Add the to depths
-                new_end_exc += len(children)
-                self.parents.append(start_inc + offset)
+                if len(children) == 0:
+                    self.is_leaf[start_inc + offset] = True
+                else:
+                    print("there are children", len(children))
+                    n_visited += len(children)
+                    new_queue += children
+                    self.depths += [depth + 1 for _ in range(len(children))]
+                    # fmt: off
+                    self.is_leaf += [depth == self.depth - 1 for _ in range(len(children))]
+                    # fmt: on
+                    new_end_exc += len(children)
+                    self.parents.append(start_inc + offset)
             queue = new_queue
             self.end_exc = new_end_exc
             self.depth += 1
-        assert len(queue) > 0
+        assert len(queue) > 0, f"{len(queue)} == 0"
         self.leaves = queue
         self.leaves_boardstack = t.stack([t.from_numpy(l) for l in self.leaves])
 
-        assert len(self.parents) == self.end_exc
-        assert len(self.leaves) < len(self.parents)
-        assert len(self.parents) == n_visited
-        assert len(self.parents) == len(self.depths)
+        # fmt: off
+        assert len(self.parents) == self.end_exc, f"{len(self.parents)} != {self.end_exc}"
+        assert len(self.leaves) < len(self.parents), f"{len(self.leaves)} >= {len(self.parents)}"
+        assert len(self.parents) == n_visited, f"{len(self.parents)} != {n_visited}"
+        assert len(self.parents) == len(self.depths), f"{len(self.parents)} != {len(self.depths)}"
+        assert len(self.parents) == len(self.is_leaf), f"{len(self.parents)} != {len(self.is_leaf)}"
         # Ensure this is a monotonic array taht only goes up by 1 ever
-        assert all(
-            self.parents[i] <= self.parents[i + 1] for i in range(len(self.parents) - 1)
-        )
-        assert all(
-            self.parents[i] + 1 >= self.parents[i + 1]
-            for i in range(len(self.parents) - 1)
-        )
+        assert all(self.parents[i] <= self.parents[i + 1] for i in range(len(self.parents) - 1))
+        assert all(self.parents[i] + 1 >= self.parents[i + 1] for i in range(len(self.parents) - 1))
+        # fmt: on
 
         self.values = [None for _ in range(len(self.parents))]
 

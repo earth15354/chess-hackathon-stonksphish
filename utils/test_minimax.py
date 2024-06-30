@@ -102,6 +102,7 @@ class TestMinimaxerBatched(unittest.TestCase):
 @click.option("--benchmark-vanilla-convolutional", is_flag=True)
 @click.option("--device", type=str, default="cpu")
 @click.option("--test-minimaxer-batched", is_flag=True)
+@click.option("--benchmark-batched-inference", is_flag=True)
 def main(
     test_minimaxer_v1: bool,
     play: bool,
@@ -114,6 +115,7 @@ def main(
     benchmark_vanilla_convolutional: bool,
     device: str,
     test_minimaxer_batched: bool,
+    benchmark_batched_inference: bool,
 ):
     if test_minimaxer_v1:
         click.echo("Running MiniMaxerV1 tests")
@@ -198,6 +200,25 @@ def main(
     if test_minimaxer_batched:
         click.echo("Running MinimaxerBatched tests")
         unittest.main(argv=["", "TestMinimaxerBatched"], exit=False)
+    
+    if benchmark_batched_inference:
+        click.echo("Benchmarking batched inference")
+        with open(model_config, "r") as f:
+            kwargs = yaml.safe_load(f)
+        vanilla_model1 = VanillaModel(**kwargs).to(device)
+        state_dict = t.load(checkpoint)
+        vanilla_model1.load_state_dict(state_dict["model"])
+        vanilla_model1.eval()
+        vanilla_model1 = vanilla_model1.to(device)
+        for i in range(5):
+            time_start = time.time()
+            inputs = [DEFAULT_STARTING_BOARD for _ in range(1000)]
+            inputs = t.stack(inputs, dim=0).to(device)
+            vanilla_model1(inputs)
+            assert inputs.shape == (1000, 8, 8)
+            time_end = time.time()
+            avg_time_taken = (time_end - time_start) / 1000
+            click.echo(f"Trial {i+1}, Average time taken (/1000): {avg_time_taken}")
 
 
 if __name__ == "__main__":

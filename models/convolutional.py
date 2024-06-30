@@ -47,6 +47,7 @@ class Model(nn.Module):
         nlayers: int = 20,
         dropout: float = 0.5,
         nlayers_segments: int = 5,
+        use_pieces_count_loss: bool = True,
     ):
         assert nlayers % nlayers_segments == 0
         super().__init__()
@@ -72,7 +73,9 @@ class Model(nn.Module):
         )
         self.decoder = nn.Linear(self.embed_dim, 1)
 
-        self.count_pieces = nn.Linear(self.embed_dim, 20)
+        self.count_pieces = (
+            nn.Linear(self.embed_dim, 20) if use_pieces_count_loss else None
+        )
 
         self.init_weights()
 
@@ -98,11 +101,13 @@ class Model(nn.Module):
                 inputs = inputs + self.convnet[i](inputs)
             # print(inputs.shape)
             inputs = F.relu(self.accumulator(inputs).squeeze())
-            piece_counts = self.count_pieces(inputs)
-            assert piece_counts.shape == (batch_size, 20)
+            piece_counts = self.count_pieces(inputs) if self.count_pieces else None
+            assert piece_counts is None or piece_counts.shape == (batch_size, 20)
             # print(inputs.shape)
             scores = self.decoder(inputs).flatten()
             assert scores.shape == (batch_size,)
+            if piece_counts is None:
+                return scores
             scores = scores.unsqueeze(1)
             assert scores.shape == (batch_size, 1)
             output = torch.cat([scores, piece_counts], dim=1)

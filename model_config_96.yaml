@@ -1,0 +1,7 @@
+ntoken: 21
+embed_dim: 96
+# nhead: 6
+# nhid: 48
+nlayers: 20
+# batch_first: True
+use_pieces_count_loss: False
