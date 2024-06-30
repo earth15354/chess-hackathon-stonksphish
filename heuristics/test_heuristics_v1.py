@@ -14,6 +14,7 @@ try:
         EMPTY,
         OPPONENT_OFFSET,
     )
+    from heuristics._test_utils import DEFAULT_STARTING_BOARD
 except (ModuleNotFoundError, ImportError):
     from heuristics_v1 import evaluate_position
     from heuristics_v1 import (
@@ -27,23 +28,13 @@ except (ModuleNotFoundError, ImportError):
         EMPTY,
         OPPONENT_OFFSET,
     )
+    from _test_utils import DEFAULT_STARTING_BOARD
 
 
 class TestEvaluatePosition(unittest.TestCase):
     def test_evaluate_position(self):
         # Create a sample board
-        # fmt: off
-        board = torch.tensor([
-            [UNMOVED_ROOK, KNIGHT, LIGHT_BISHOP, QUEEN, UNMOVED_KING, DARK_BISHOP, KNIGHT, UNMOVED_ROOK],
-            [PAWN, PAWN, PAWN, PAWN, PAWN, PAWN, PAWN, PAWN],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY],
-            [PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET, PAWN+OPPONENT_OFFSET],
-            [UNMOVED_ROOK+OPPONENT_OFFSET, KNIGHT+OPPONENT_OFFSET, LIGHT_BISHOP+OPPONENT_OFFSET, QUEEN+OPPONENT_OFFSET, UNMOVED_KING+OPPONENT_OFFSET, DARK_BISHOP+OPPONENT_OFFSET, KNIGHT+OPPONENT_OFFSET, UNMOVED_ROOK+OPPONENT_OFFSET]
-        ])
-        # fmt: on
+        board = DEFAULT_STARTING_BOARD
         # Symmetry and shape
         assert board.shape == (8, 8)
         # assert all(
