@@ -249,7 +249,6 @@ class MinimaxerBatched:
         return t.Tensor(self.values[: self.len(self.roots)])
 
 
-
 class MiniMaxedModule(nn.Module):
     def __init__(
         self,

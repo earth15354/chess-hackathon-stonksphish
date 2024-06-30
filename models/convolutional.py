@@ -72,6 +72,8 @@ class Model(nn.Module):
         )
         self.decoder = nn.Linear(self.embed_dim, 1)
 
+        self.count_pieces = nn.Linear(self.embed_dim, 20)
+
         self.init_weights()
 
     def init_weights(self):
@@ -80,6 +82,7 @@ class Model(nn.Module):
         nn.init.uniform_(self.decoder.weight, -initrange, initrange)
 
     def forward(self, inputs, use_minimax: bool = False):  # (N, 8, 8)
+        batch_size, _, _ = inputs.shape
         if len(inputs.shape) == 2:
             assert inputs.shape == (8, 8)
             inputs = inputs.unsqueeze(0)
@@ -95,7 +98,14 @@ class Model(nn.Module):
                 inputs = inputs + self.convnet[i](inputs)
             # print(inputs.shape)
             inputs = F.relu(self.accumulator(inputs).squeeze())
+            piece_counts = self.count_pieces(inputs)
+            assert piece_counts.shape == (batch_size, 20)
             # print(inputs.shape)
             scores = self.decoder(inputs).flatten()
+            assert scores.shape == (batch_size,)
+            scores = scores.unsqueeze(1)
+            assert scores.shape == (batch_size, 1)
+            output = torch.cat([scores, piece_counts], dim=1)
+            assert output.shape == (batch_size, 21)
             # print(scores.shape)
-            return scores
+            return output

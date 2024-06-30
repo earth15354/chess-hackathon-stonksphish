@@ -31,6 +31,9 @@ from cycling_utils import (
     atomic_torch_save,
 )
 from LAMB import Lamb
+from jaxtyping import Float, Int
+import torch.nn.functional as F
+from arch import LearnedValuation, VALUES
 
 timer.report("Completed imports")
 
@@ -47,6 +50,26 @@ def get_args_parser(add_help=True):
 def logish_transform(data):
     reflector = -1 * (data < 0).to(torch.int8)
     return reflector * torch.log(torch.abs(data) + 1)
+
+
+def weighted_mse_loss(
+    input: Float[torch.Tensor, "batch feats"],
+    target: Float[torch.Tensor, "batch feats"],
+    weight: Float[torch.Tensor, "feats"],
+):
+    batch_losses = torch.sum(weight * (input - target) ** 2, dim=-1)
+    assert batch_losses.shape == (input.shape[0],)
+    return torch.sum(batch_losses)  # TODO(Adriano) should we sum?
+
+
+def get_actual_piece_counts(boards: Int[torch.Tensor, "batch 8 8"], device: str):
+    piece_planes = LearnedValuation._preprocess_board(
+        boards, VALUES.cuda(), device=device
+    )
+    assert piece_planes.shape == (boards.shape[0], 20, 8, 8)
+    piece_counts = piece_planes.sum(dim=(2, 3))
+    assert piece_counts.shape == (boards.shape[0], 20)
+    return piece_counts
 
 
 def main(args, timer):
@@ -100,7 +123,13 @@ def main(args, timer):
     # model = DDP(model, device_ids=[args.device_id])
     timer.report("Prepared model for distributed training")
 
-    loss_fn = nn.MSELoss(reduction="sum")
+    loss_weighting = torch.ones(21) * (1 / 42)
+    loss_weighting[0] += 0.5
+    loss_weighting = loss_weighting.to("cuda")
+    assert torch.isclose(loss_weighting.sum(), torch.Tensor([1.0]).cuda())
+
+    # loss_fn = nn.MSELoss(reduction="sum")
+    loss_fn = lambda output, target: weighted_mse_loss(output, target, loss_weighting)
     optimizer = Lamb(
         model.parameters(),
         lr=args.lr,
@@ -138,6 +167,7 @@ def main(args, timer):
         optimizer.zero_grad()
         model.train()
         accum_loss = 0.0
+        accum_value_loss = 0.0
         examples_seen = 0
 
         # for _moves, _turns, boards, evals in train_dataloader:
@@ -150,8 +180,21 @@ def main(args, timer):
             evals = logish_transform(evals)  # suspect this might help
             # boards, evals = boards.to(args.device_id), evals.to(args.device_id)
             boards, evals = boards.to("cuda"), evals.to("cuda")
+
+            # Output
             scores = model(boards)
-            loss = loss_fn(scores, evals)
+            assert scores.shape == (len(evals), 21)
+
+            # Create the target
+            evals = evals.unsqueeze(1)
+            assert evals.shape == (len(evals), 1)
+
+            pcounts = get_actual_piece_counts(boards, "cuda")
+            assert pcounts.shape == (len(evals), 20)
+            targets = torch.cat([evals, pcounts], dim=1)
+            assert targets.shape == (len(evals), 21)
+
+            loss = loss_fn(scores, targets)
             loss = loss / grad_accum_steps
             loss.backward()
             # train_dataloader.sampler.advance(len(evals))
@@ -168,6 +211,9 @@ def main(args, timer):
             # })
             accum_loss += loss.item()
             examples_seen += len(evals)
+            accum_value_loss += (
+                torch.square(scores[:, 0].detach() - targets[:, 0].detach()).sum().item()
+            )
 
             if (step + 1) % grad_accum_steps == 0 or is_last_step:
 
@@ -181,7 +227,10 @@ def main(args, timer):
                 #     rpt_top1 = rpt["top1_accuracy"] / rpt["examples_seen"]
                 #     rpt_top5 = rpt["top5_accuracy"] / rpt["examples_seen"]
                 print(f"Step {step}, Loss {accum_loss / examples_seen:,.3f}")
+                print(f"Step {step}, VALUE Loss {accum_value_loss / examples_seen:,.3f}")
+                print(f"====")
                 accum_loss = 0.0
+                accum_value_loss = 0.0
                 examples_seen = 0
 
                 # metrics["train"].reset_local()
@@ -224,6 +273,18 @@ def main(args, timer):
                 # boards, evals = boards.to(args.device_id), evals.to(args.device_id)
                 boards, evals = boards.to("cuda"), evals.to("cuda")
                 scores = model(boards)
+
+                evals = evals.unsqueeze(1)
+                assert evals.shape == (len(evals), 1)
+
+                pcounts = get_actual_piece_counts(boards, "cuda")
+                assert pcounts.shape == (len(evals), 20)
+                targets = torch.cat([evals, pcounts], dim=1)
+                assert targets.device == scores.device
+                assert targets.shape == (len(evals), 21)
+
+                loss = loss_fn(scores, targets)
+
                 loss = loss_fn(scores, evals)
                 # test_dataloader.sampler.advance(len(evals))
 

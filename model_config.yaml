@@ -1,5 +1,5 @@
 ntoken: 21
-embed_dim: 96
+embed_dim: 512
 # nhead: 6
 # nhid: 48
 nlayers: 20

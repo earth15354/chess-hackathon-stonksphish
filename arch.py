@@ -160,17 +160,25 @@ class LearnedValuation(nn.Module):
 
         self.values = values.to(self.device)
 
-    def preprocess_board(
-        self, board: Int[t.Tensor, "batch height width"]
+    @staticmethod
+    def _preprocess_board(
+        board: Int[t.Tensor, "batch height width"],
+        values: t.Tensor,
+        device: str = "cuda",
     ) -> Float[t.Tensor, "batch depth height width"]:
         batch, height, width = board.shape
         assert height == 8 and width == 8
         output = (
-            einops.repeat(board, "b h w -> b h w r", r=len(self.values)) == self.values
+            einops.repeat(board, "b h w -> b h w r", r=len(values)) == values
         ).float()
         output_with_chans = einops.rearrange(output, "b h w r -> b r h w ")
         assert output_with_chans.max() == 1 and output_with_chans.min() == 0
-        return output_with_chans.to(self.device)
+        return output_with_chans.to(device)
+
+    def preprocess_board(
+        self, board: Int[t.Tensor, "batch height width"]
+    ) -> Float[t.Tensor, "batch depth height width"]:
+        return self._preprocess_board(board, self.values, self.device)
 
     # TODO(Adriano) some sort of multimodal
     def forward(
