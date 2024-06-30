@@ -18,7 +18,7 @@ from heuristics_v1 import (
 MAX_ALLOWABLE_TABLE_DEPTH = 512
 MAX_ALLOWABLE_VECTOR_DEPTH = 512
 
-from _test_utils import DEFAULT_STARTING_BOARD
+from utils import DEFAULT_STARTING_BOARD
 
 
 class TestEvaluatePosition(unittest.TestCase):

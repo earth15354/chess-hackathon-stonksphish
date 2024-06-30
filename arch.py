@@ -58,6 +58,8 @@ class LearnedValuation(nn.Module):
         n_mlp_layers: int = 4,
         device: str = "cuda",
         values: t.Tensor = VALUES,
+        embed_dim: int = 64,
+        ntoken: int = 12,
     ) -> None:
         super().__init__()
         self.num_planes = len(values) * num_valuations_per_piece_type
@@ -75,11 +77,21 @@ class LearnedValuation(nn.Module):
 
         # Value the positions themselves (not the same as bias: value based on location AND
         # plane)
-        self.bias_table = nn.Parameter(t.randn((self.num_planes, 8, 8)) * stdev + mean)
+        max_min_val = 1 / (
+            8 * 8
+        )  # Estimated so that every plane will sum to roughly one
+        self.bias_table = nn.Parameter(
+            2 * max_min_val * (t.rand((self.num_planes, 8, 8)) - 0.5)
+        )
+
+        # Replicating this
+        self.embed_dim = embed_dim
+        self.ntoken = ntoken
+        self.input_emb = nn.Embedding(self.ntoken, self.embed_dim)
 
         # Try to collect features w.r.t. chains of pawns, etc...
         self.conv3x3 = nn.Conv2d(
-            in_channels=self.num_planes,
+            in_channels=self.num_planes + self.embed_dim,
             out_channels=self.latent_num_planes // 4,
             kernel_size=3,
             padding=1,
@@ -87,7 +99,7 @@ class LearnedValuation(nn.Module):
             bias=False,
         )
         self.conv5x5 = nn.Conv2d(
-            in_channels=self.num_planes,
+            in_channels=self.num_planes + self.embed_dim,
             out_channels=self.latent_num_planes // 4,
             padding=2,
             kernel_size=5,
@@ -95,7 +107,7 @@ class LearnedValuation(nn.Module):
             bias=False,
         )
         self.conv7x7 = nn.Conv2d(
-            in_channels=self.num_planes,
+            in_channels=self.num_planes + self.embed_dim,
             out_channels=self.latent_num_planes // 4,
             kernel_size=7,
             padding=3,
@@ -103,7 +115,7 @@ class LearnedValuation(nn.Module):
             bias=False,
         )
         self.conv9x9 = nn.Conv2d(
-            in_channels=self.num_planes,
+            in_channels=self.num_planes + self.embed_dim,
             out_channels=self.latent_num_planes // 4,
             kernel_size=9,
             padding=4,
@@ -179,12 +191,28 @@ class LearnedValuation(nn.Module):
             8,
         ), f"{pieces_mask.shape}"
 
+        # 1.A Embedding
+        embedding = self.input_emb(board)
+        embedding = einops.rearrange(
+            embedding, "b h w c -> b c h w", c=self.embed_dim, h=8, w=8
+        )
+        assert embedding.shape == (
+            batch,
+            self.embed_dim,
+            8,
+            8,
+        ), f"{embedding.shape}"
+
+        # 1.B Valuation
         valuations = self.conv1x1_valuations(pieces_mask)
         valuations += self.bias_table
-        conv3x3 = self.conv3x3(valuations)
-        conv5x5 = self.conv5x5(valuations)
-        conv7x7 = self.conv7x7(valuations)
-        conv9x9 = self.conv9x9(valuations)
+
+        # 2+. Network
+        full_input = t.cat([valuations, embedding], dim=1)
+        conv3x3 = self.conv3x3(full_input)
+        conv5x5 = self.conv5x5(full_input)
+        conv7x7 = self.conv7x7(full_input)
+        conv9x9 = self.conv9x9(full_input)
 
         gathered_info = t.cat([conv3x3, conv5x5, conv7x7, conv9x9], dim=1)
         assert gathered_info.shape == (

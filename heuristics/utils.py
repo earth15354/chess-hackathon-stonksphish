@@ -1,15 +1,10 @@
 import torch as t
-from heuristics_base_v2 import (
-    EMPTY,
-    PAWN,
-    UNMOVED_ROOK,
-    KNIGHT,
-    LIGHT_BISHOP,
-    DARK_BISHOP,
-    QUEEN,
-    UNMOVED_KING,
-    OPPONENT_OFFSET,
-)
+
+EMPTY = 0
+PAWN, PASSANT_PAWN, UNMOVED_ROOK, MOVED_ROOK, KNIGHT = 1, 2, 3, 4, 5
+LIGHT_BISHOP, DARK_BISHOP, QUEEN, UNMOVED_KING, MOVED_KING = 6, 7, 8, 9, 10
+OPPONENT_OFFSET = 10
+
 
 # fmt: off
 DEFAULT_STARTING_BOARD = t.tensor([

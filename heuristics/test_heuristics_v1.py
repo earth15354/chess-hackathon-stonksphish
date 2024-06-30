@@ -14,7 +14,7 @@ try:
         EMPTY,
         OPPONENT_OFFSET,
     )
-    from heuristics._test_utils import DEFAULT_STARTING_BOARD
+    from heuristics.utils import DEFAULT_STARTING_BOARD
 except (ModuleNotFoundError, ImportError):
     from heuristics_v1 import evaluate_position
     from heuristics_v1 import (
@@ -28,7 +28,7 @@ except (ModuleNotFoundError, ImportError):
         EMPTY,
         OPPONENT_OFFSET,
     )
-    from _test_utils import DEFAULT_STARTING_BOARD
+    from utils import DEFAULT_STARTING_BOARD
 
 
 class TestEvaluatePosition(unittest.TestCase):

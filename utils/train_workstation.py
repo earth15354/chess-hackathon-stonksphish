@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import sys
+
 sys.path.append(str(Path(__file__).parent.parent.as_posix()))
 
 from cycling_utils import TimestampedTimer
@@ -9,12 +10,15 @@ timer = TimestampedTimer("Imported TimestampedTimer")
 
 import torch
 import torch.nn as nn
+
 # import torch.distributed as dist
 # from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import random_split
 import argparse
 import os
+
 # from model import Model
+from models.convolutional import Model
 from arch import LearnedValuation
 from dataset import HDFDataset
 from torch.utils.data import DataLoader
@@ -30,6 +34,7 @@ from LAMB import Lamb
 
 timer.report("Completed imports")
 
+
 def get_args_parser(add_help=True):
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-config", type=Path, required=True)
@@ -38,9 +43,11 @@ def get_args_parser(add_help=True):
     parser.add_argument("--lr", type=float, required=True, default=None)
     return parser
 
+
 def logish_transform(data):
     reflector = -1 * (data < 0).to(torch.int8)
     return reflector * torch.log(torch.abs(data) + 1)
+
 
 def main(args, timer):
 
@@ -66,12 +73,16 @@ def main(args, timer):
     args.save_chk_path.parent.mkdir(parents=True, exist_ok=True)
     timer.report("Validated checkpoint path")
 
-    data_path = (Path(__file__).parent.parent / "data").as_posix() # TODO(Adriano) please parameterize
+    data_path = (
+        Path(__file__).parent.parent / "data"
+    ).as_posix()  # TODO(Adriano) please parameterize
     dataset = HDFDataset(data_path)
     timer.report("Loaded dataset to RAM")
 
     random_generator = torch.Generator().manual_seed(42)
-    train_dataset, test_dataset = random_split(dataset, [0.8, 0.2], generator=random_generator)
+    train_dataset, test_dataset = random_split(
+        dataset, [0.8, 0.2], generator=random_generator
+    )
 
     # train_sampler = InterruptableDistributedSampler(train_dataset)
     # test_sampler = InterruptableDistributedSampler(test_dataset)
@@ -82,15 +93,22 @@ def main(args, timer):
     timer.report("Prepared dataloaders")
 
     model_config = yaml.safe_load(open(args.model_config))
-    # model = Model(**model_config)
-    model = LearnedValuation(**model_config)
+    model = Model(**model_config)
+    # model = LearnedValuation(**model_config)
     # model = model.to(args.device_id)
-    model = model.to('cuda')
+    model = model.to("cuda")
     # model = DDP(model, device_ids=[args.device_id])
     timer.report("Prepared model for distributed training")
 
-    loss_fn = nn.MSELoss(reduction='sum')
-    optimizer = Lamb(model.parameters(), lr=args.lr)
+    loss_fn = nn.MSELoss(reduction="sum")
+    optimizer = Lamb(
+        model.parameters(),
+        lr=args.lr,
+        betas=(0.9, 0.9999),
+        adam=False,
+        weight_decay=0.0001,
+        clamp_value=4,
+    )
     # metrics = {"train": MetricsTracker(), "test": MetricsTracker()}
 
     if os.path.isfile(args.load_chk_path):
@@ -129,9 +147,9 @@ def main(args, timer):
             # step = train_dataloader.sampler.progress // train_dataloader.batch_size
             is_last_step = (step + 1) == train_steps_per_epoch
 
-            evals = logish_transform(evals) # suspect this might help
+            evals = logish_transform(evals)  # suspect this might help
             # boards, evals = boards.to(args.device_id), evals.to(args.device_id)
-            boards, evals = boards.to('cuda'), evals.to('cuda')
+            boards, evals = boards.to("cuda"), evals.to("cuda")
             scores = model(boards)
             loss = loss_fn(scores, evals)
             loss = loss / grad_accum_steps
@@ -144,8 +162,8 @@ def main(args, timer):
 
             # metrics["train"].update({
             #     "examples_seen": len(evals),
-            #     "accum_loss": loss.item(), 
-            #     "top1_accuracy": 1 if top_eval_index in top1_score_indices else 0, 
+            #     "accum_loss": loss.item(),
+            #     "top1_accuracy": 1 if top_eval_index in top1_score_indices else 0,
             #     "top5_accuracy": 1 if top_eval_index in top5_score_indices else 0
             # })
             accum_loss += loss.item()
@@ -172,6 +190,10 @@ def main(args, timer):
             # if ((step + 1) % save_steps == 0 or is_last_step) and args.is_master:
             if (step + 1) % save_steps == 0 or is_last_step:
                 # Save checkpoint
+                pth_str = args.save_chk_path
+                pth = Path(pth_str)
+                pth = pth.parent / f"{pth.name}-step-{step}{pth.suffix}"
+                pth = pth.as_posix()
                 atomic_torch_save(
                     {
                         # "model": model.module.state_dict(),
@@ -181,7 +203,7 @@ def main(args, timer):
                         # "test_sampler": test_dataloader.sampler.state_dict(),
                         # "metrics": metrics
                     },
-                    args.save_chk_path,
+                    pth,
                 )
 
         # with test_dataloader.sampler.in_epoch(epoch):
@@ -198,11 +220,11 @@ def main(args, timer):
                 # step = test_dataloader.sampler.progress // test_dataloader.batch_size
                 is_last_step = (step + 1) == test_steps_per_epoch
 
-                evals = logish_transform(evals) # suspect this might help
+                evals = logish_transform(evals)  # suspect this might help
                 # boards, evals = boards.to(args.device_id), evals.to(args.device_id)
-                boards, evals = boards.to('cuda'), evals.to('cuda')
+                boards, evals = boards.to("cuda"), evals.to("cuda")
                 scores = model(boards)
-                loss = loss_fn(scores, evals) 
+                loss = loss_fn(scores, evals)
                 # test_dataloader.sampler.advance(len(evals))
 
                 # top_eval_index = evals.argmax()
@@ -211,11 +233,11 @@ def main(args, timer):
 
                 # metrics["test"].update({
                 #     "examples_seen": len(evals),
-                #     "accum_loss": loss.item(), 
-                #     "top1_accuracy": 1 if top_eval_index in top1_score_indices else 0, 
+                #     "accum_loss": loss.item(),
+                #     "top1_accuracy": 1 if top_eval_index in top1_score_indices else 0,
                 #     "top5_accuracy": 1 if top_eval_index in top5_score_indices else 0
                 #     })
-                
+
                 # Reporting
                 if is_last_step:
                     # metrics["test"].reduce()
@@ -225,14 +247,20 @@ def main(args, timer):
                     #     rpt_loss =rpt["accum_loss"] / rpt["examples_seen"]
                     #     rpt_top1 = rpt["top1_accuracy"] / rpt["examples_seen"]
                     #     rpt_top5 = rpt["top5_accuracy"] / rpt["examples_seen"]
-                    
-                    print(f"Epoch {epoch}, Loss {rpt_loss:,.3f}, Top1 {rpt_top1:,.3f}, Top5 {rpt_top5:,.3f}")
+
+                    print(
+                        f"Epoch {epoch}, Loss {rpt_loss:,.3f}, Top1 {rpt_top1:,.3f}, Top5 {rpt_top5:,.3f}"
+                    )
 
                     # metrics["test"].reset_local()
-                
+
                 # Saving
                 # if ((step + 1) % save_steps == 0 or is_last_step) and args.is_master:
                 if (step + 1) % save_steps == 0 or is_last_step:
+                    pth_str = args.save_chk_path
+                    pth = Path(pth_str)
+                    pth = pth.parent / f"{pth.name}-step-{step}{pth.suffix}"
+                    pth = pth.as_posix()
                     # Save checkpoint
                     atomic_torch_save(
                         {
@@ -243,7 +271,7 @@ def main(args, timer):
                             # "test_sampler": test_dataloader.sampler.state_dict(),
                             # "metrics": metrics
                         },
-                        args.save_chk_path,
+                        pth,
                     )
 
 
